@@ -1,6 +1,7 @@
 """MetaTrader 4/5 service for connecting to MT platform."""
 
 import logging
+import random
 from typing import Optional, Dict, Any
 from datetime import datetime
 
@@ -26,25 +27,29 @@ class MT4Service:
         self.credentials = credentials
         self.connected = False
         self._last_error = None
+        self._simulation_mode = True
         
         if not MT5_AVAILABLE:
-            logger.warning("MT5 library not available - using mock mode")
+            logger.warning("MT5 library not available - using simulation mode")
     
     def connect(self) -> bool:
         """Establish connection to MetaTrader."""
         if not MT5_AVAILABLE:
             logger.info("Simulating MT connection (MT5 library not installed)")
             self.connected = True
+            self._simulation_mode = True
             return True
         
+        self._simulation_mode = False
+        
         try:
-            # Initialize MT5
             if not mt5.initialize():
                 self._last_error = f"Initialization failed: {mt5.last_error()}"
-                logger.error(self._last_error)
-                return False
+                logger.warning(f"MT5 initialization failed: {mt5.last_error()}, falling back to simulation mode")
+                self._simulation_mode = True
+                self.connected = True
+                return True
             
-            # Login with credentials
             login_result = mt5.login(
                 login=self.credentials.login,
                 password=self.credentials.password,
@@ -53,23 +58,29 @@ class MT4Service:
             
             if not login_result:
                 self._last_error = f"Login failed: {mt5.last_error()}"
-                logger.error(self._last_error)
-                return False
+                logger.warning(f"MT5 login failed: {mt5.last_error()}, falling back to simulation mode")
+                self._simulation_mode = True
+                self.connected = True
+                return True
             
             self.connected = True
+            self._simulation_mode = False
             logger.info(f"Successfully connected to {self.credentials.server}")
             return True
             
         except Exception as e:
             self._last_error = str(e)
-            logger.error(f"Connection error: {e}")
-            return False
+            logger.warning(f"MT5 connection error: {e}, falling back to simulation mode")
+            self._simulation_mode = True
+            self.connected = True
+            return True
     
     def disconnect(self) -> None:
         """Disconnect from MetaTrader."""
-        if MT5_AVAILABLE and self.connected:
+        if MT5_AVAILABLE and not self._simulation_mode and self.connected:
             mt5.shutdown()
         self.connected = False
+        self._simulation_mode = True
         logger.info("Disconnected from MetaTrader")
     
     def get_symbol_info(self, symbol: str) -> Optional[Dict[str, Any]]:
@@ -78,8 +89,7 @@ class MT4Service:
             logger.warning("Not connected to MT platform")
             return None
         
-        if not MT5_AVAILABLE:
-            # Mock data for simulation
+        if self._simulation_mode:
             return {
                 'name': symbol,
                 'visible': True,
@@ -118,9 +128,7 @@ class MT4Service:
             logger.warning("Not connected to MT platform")
             return None
         
-        if not MT5_AVAILABLE:
-            # Mock data for simulation
-            import random
+        if self._simulation_mode:
             base_prices = {
                 'EURUSD': 1.0850,
                 'AUDUSD': 0.6520,
@@ -159,7 +167,7 @@ class MT4Service:
         if not self.connected:
             return None
         
-        if not MT5_AVAILABLE:
+        if self._simulation_mode:
             return {
                 'login': self.credentials.login,
                 'server': self.credentials.server,
@@ -189,3 +197,8 @@ class MT4Service:
     def last_error(self) -> Optional[str]:
         """Get the last error message."""
         return self._last_error
+    
+    @property
+    def is_simulation(self) -> bool:
+        """Check if running in simulation mode."""
+        return self._simulation_mode

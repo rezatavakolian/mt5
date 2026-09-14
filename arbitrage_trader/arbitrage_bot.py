@@ -72,7 +72,8 @@ class ArbitrageBot:
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_shutdown)
-        signal.signal(signal.SIGTERM, self._handle_shutdown)
+        if hasattr(signal, 'SIGTERM'):
+            signal.signal(signal.SIGTERM, self._handle_shutdown)
         
         try:
             self._run_loop(run_duration_seconds)

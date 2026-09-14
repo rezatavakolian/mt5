@@ -61,40 +61,26 @@ class TradeExecutor:
                 failed_legs += 1
                 logger.error(f"Failed to execute leg: {leg.symbol} {leg.action}")
         
-        # Log execution summary
         self._log_execution(opportunity, successful_legs, failed_legs)
         
         if failed_legs > 0:
             logger.warning(f"Partial execution: {successful_legs}/{len(opportunity.legs)} legs successful")
-            # In a real system, you might want to close the successful legs here
-            # to avoid exposure, but that depends on your risk management strategy
             return False
         
         logger.info(f"Successfully executed all {successful_legs} legs")
         return True
     
     def _execute_leg(self, leg: TradeLeg, opportunity: ArbitrageOpportunity) -> bool:
-        """Execute a single trade leg.
-        
-        Args:
-            leg: The trade leg to execute
-            opportunity: Parent arbitrage opportunity
-            
-        Returns:
-            True if execution successful, False otherwise
-        """
-        if not MT5_AVAILABLE:
-            # Simulate execution in mock mode
+        """Execute a single trade leg."""
+        if self.mt4_service.is_simulation:
             logger.info(f"[SIMULATED] {leg.action} {leg.lot_size} lots {leg.symbol} @ {leg.entry_price}")
             self._record_execution(leg, True, "Simulated", opportunity)
             self._positions_opened += 1
             return True
         
         try:
-            # Determine order type
             order_type = mt5.ORDER_TYPE_BUY if leg.action == 'BUY' else mt5.ORDER_TYPE_SELL
             
-            # Prepare the trade request
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": leg.symbol,
@@ -103,14 +89,13 @@ class TradeExecutor:
                 "price": leg.entry_price,
                 "sl": leg.stop_loss,
                 "tp": leg.take_profit,
-                "deviation": 20,  # Maximum price deviation in points
-                "magic": 234000,  # Magic number to identify orders from this EA
+                "deviation": 20,
+                "magic": 234000,
                 "comment": f"Arb_{opportunity.opportunity_type.value}",
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
             
-            # Send the order
             result = mt5.order_send(request)
             
             if result is None:
@@ -125,7 +110,7 @@ class TradeExecutor:
                 return False
             
             logger.info(
-                f"Order executed: {leg.action} {leg.volume} {leg.symbol} @ {result.price}, "
+                f"Order executed: {leg.action} {result.volume} {leg.symbol} @ {result.price}, "
                 f"ticket={result.order}"
             )
             
@@ -139,28 +124,22 @@ class TradeExecutor:
             return False
     
     def close_position(self, ticket: int) -> bool:
-        """Close an open position by ticket.
-        
-        Args:
-            ticket: Position ticket number
-            
-        Returns:
-            True if closed successfully, False otherwise
-        """
-        if not MT5_AVAILABLE:
+        """Close an open position by ticket."""
+        if self.mt4_service.is_simulation:
             logger.info(f"[SIMULATED] Close position #{ticket}")
             self._positions_closed += 1
             return True
         
         try:
-            # Get position info
             position = mt5.position_get(ticket=ticket)
             if position is None:
                 logger.error(f"Position {ticket} not found")
                 return False
             
-            # Prepare close request (opposite action)
             order_type = mt5.ORDER_TYPE_SELL if position.type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
+            
+            tick = mt5.symbol_info_tick(position.symbol)
+            price = tick.ask if order_type == mt5.ORDER_TYPE_BUY else tick.bid
             
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
@@ -168,7 +147,7 @@ class TradeExecutor:
                 "volume": position.volume,
                 "type": order_type,
                 "position": ticket,
-                "price": mt5.symbol_info_tick(position.symbol).ask if order_type == mt5.ORDER_TYPE_BUY else mt5.symbol_info_tick(position.symbol).bid,
+                "price": price,
                 "deviation": 20,
                 "magic": 234000,
                 "comment": "Close arbitrage position",
@@ -191,15 +170,8 @@ class TradeExecutor:
             return False
     
     def close_all_positions(self, symbols: Optional[List[str]] = None) -> int:
-        """Close all open positions, optionally filtered by symbols.
-        
-        Args:
-            symbols: List of symbols to filter by (None for all)
-            
-        Returns:
-            Number of positions closed
-        """
-        if not MT5_AVAILABLE:
+        """Close all open positions, optionally filtered by symbols."""
+        if self.mt4_service.is_simulation:
             logger.info("[SIMULATED] Close all positions")
             return 0
         
@@ -227,14 +199,7 @@ class TradeExecutor:
         message: str,
         opportunity: ArbitrageOpportunity
     ) -> None:
-        """Record execution details for logging and auditing.
-        
-        Args:
-            leg: The trade leg
-            success: Whether execution was successful
-            message: Result message
-            opportunity: Parent opportunity
-        """
+        """Record execution details for logging and auditing."""
         record = {
             'timestamp': datetime.now(),
             'symbol': leg.symbol,
@@ -254,13 +219,7 @@ class TradeExecutor:
         successful: int, 
         failed: int
     ) -> None:
-        """Log execution summary.
-        
-        Args:
-            opportunity: The executed opportunity
-            successful: Number of successful legs
-            failed: Number of failed legs
-        """
+        """Log execution summary."""
         summary = {
             'timestamp': datetime.now(),
             'opportunity_type': opportunity.opportunity_type.value,
@@ -280,14 +239,7 @@ class TradeExecutor:
             )
     
     def get_execution_history(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get recent execution history.
-        
-        Args:
-            limit: Maximum number of records to return
-            
-        Returns:
-            List of execution records
-        """
+        """Get recent execution history."""
         return self._execution_log[-limit:]
     
     @property

@@ -70,6 +70,9 @@ class ArbitrageBot:
                 f"Balance: {account_info['balance']} {account_info['currency']}"
             )
         
+        # Ensure all trading symbols are visible in Market Watch
+        self.mt_service.ensure_symbols_visible(self.settings.trading.symbols)
+        
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._handle_shutdown)
         if hasattr(signal, 'SIGTERM'):
@@ -185,6 +188,9 @@ class ArbitrageBot:
         if account_info:
             print(f"\nAccount: {account_info['login']} @ {account_info['server']}")
             print(f"Balance: {account_info['balance']} {account_info['currency']}\n")
+        
+        # Ensure all trading symbols are visible in Market Watch
+        self.mt_service.ensure_symbols_visible(self.settings.trading.symbols)
         
         # Run demo cycles
         for i in range(cycles):

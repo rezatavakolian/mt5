@@ -2,6 +2,7 @@
 
 import logging
 import random
+import time
 from typing import Optional, Dict, Any
 from datetime import datetime
 
@@ -147,17 +148,34 @@ class MT4Service:
             )
         
         try:
-            tick = mt5.symbol_info_tick(symbol)
-            if tick is None:
-                logger.warning(f"No tick data for {symbol}")
+            info = mt5.symbol_info(symbol)
+            if info is None:
+                logger.warning(f"Symbol {symbol} not found in MT5")
                 return None
             
-            return PriceData(
-                symbol=symbol,
-                bid=tick.bid,
-                ask=tick.ask,
-                timestamp=datetime.fromtimestamp(tick.time)
-            )
+            if not info.visible:
+                if not mt5.symbol_select(symbol, True):
+                    logger.warning(f"Could not enable symbol {symbol}")
+                    return None
+                time.sleep(0.3)
+            
+            for attempt in range(5):
+                tick = mt5.symbol_info_tick(symbol)
+                if tick is not None and tick.bid > 0 and tick.ask > 0:
+                    price_data = PriceData(
+                        symbol=symbol,
+                        bid=tick.bid,
+                        ask=tick.ask,
+                        timestamp=datetime.fromtimestamp(tick.time)
+                    )
+                    if price_data.is_valid():
+                        return price_data
+                    else:
+                        logger.debug(f"Tick for {symbol} invalid: bid={tick.bid}, ask={tick.ask}")
+                time.sleep(0.1)
+            
+            logger.warning(f"No valid tick data for {symbol} after retries")
+            return None
         except Exception as e:
             logger.error(f"Error getting price for {symbol}: {e}")
             return None
@@ -202,3 +220,38 @@ class MT4Service:
     def is_simulation(self) -> bool:
         """Check if running in simulation mode."""
         return self._simulation_mode
+    
+    def ensure_symbols_visible(self, symbols: list) -> bool:
+        """Ensure all trading symbols are visible in MT5 market watch.
+        
+        Args:
+            symbols: List of symbol names to enable
+            
+        Returns:
+            True if all symbols enabled successfully
+        """
+        if self._simulation_mode:
+            return True
+        
+        all_ok = True
+        enabled_any = False
+        for symbol in symbols:
+            info = mt5.symbol_info(symbol)
+            if info is None:
+                logger.warning(f"Symbol {symbol} not found in MT5")
+                all_ok = False
+                continue
+            
+            if not info.visible:
+                if mt5.symbol_select(symbol, True):
+                    logger.info(f"Enabled symbol {symbol}")
+                    enabled_any = True
+                    time.sleep(0.2)
+                else:
+                    logger.warning(f"Could not enable symbol {symbol}")
+                    all_ok = False
+        
+        if enabled_any:
+            time.sleep(0.5)
+        
+        return all_ok

@@ -38,5 +38,5 @@ class PriceData:
         """Check if price data is valid."""
         return (self.bid > 0 and 
                 self.ask > 0 and 
-                self.ask > self.bid and
+                self.ask >= self.bid and
                 self.timestamp is not None)
